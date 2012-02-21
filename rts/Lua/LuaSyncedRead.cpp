@@ -229,6 +229,7 @@ bool LuaSyncedRead::PushEntries(lua_State* L)
 	REGISTER_LUA_CFUNC(GetUnitCollisionVolumeData);
 	REGISTER_LUA_CFUNC(GetUnitPieceCollisionVolumeData);
 
+	REGISTER_LUA_CFUNC(GetUnitBlocking);
 	REGISTER_LUA_CFUNC(GetUnitMoveTypeData);
 
 	REGISTER_LUA_CFUNC(GetUnitCommands);
@@ -528,22 +529,6 @@ static CProjectile* ParseProjectile(lua_State* L, const char* caller, int index)
 
 /******************************************************************************/
 
-static inline CPlayer* ParsePlayer(lua_State* L, const char* caller, int index)
-{
-	if (!lua_isnumber(L, index)) {
-		luaL_error(L, "Bad playerID type in %s()\n", caller);
-	}
-	const int playerID = lua_toint(L, index);
-	if (!playerHandler->IsValidPlayer(playerID)) {
-		luaL_error(L, "Bad playerID in %s\n", caller);
-	}
-	CPlayer* player = playerHandler->Player(playerID);
-	if (player == NULL) {
-		luaL_error(L, "Bad player in %s\n", caller);
-	}
-	return player;
-}
-
 
 static inline CTeam* ParseTeam(lua_State* L, const char* caller, int index)
 {
@@ -555,23 +540,6 @@ static inline CTeam* ParseTeam(lua_State* L, const char* caller, int index)
 		luaL_error(L, "Bad teamID in %s\n", caller);
 	}
 	return teamHandler->Team(teamID);
-}
-
-
-static inline int ParseTeamID(lua_State* L, const char* caller, int index)
-{
-	if (!lua_isnumber(L, index)) {
-		luaL_error(L, "Bad teamID type in %s()\n", caller);
-	}
-	const int teamID = lua_toint(L, index);
-	if (!teamHandler->IsValidTeam(teamID)) {
-		luaL_error(L, "Bad teamID in %s\n", caller);
-	}
-	CTeam* team = teamHandler->Team(teamID);
-	if (team == NULL) {
-		luaL_error(L, "Bad teamID in %s\n", caller);
-	}
-	return teamID;
 }
 
 
@@ -1119,9 +1087,10 @@ int LuaSyncedRead::GetTeamResources(lua_State* L)
 		lua_pushnumber(L, team->prevMetalIncome);
 		lua_pushnumber(L, team->prevMetalExpense);
 		lua_pushnumber(L, team->metalShare);
-		lua_pushnumber(L, team->metalSent);
-		lua_pushnumber(L, team->metalReceived);
-		return 8;
+		lua_pushnumber(L, team->prevMetalSent);
+		lua_pushnumber(L, team->prevMetalReceived);
+		lua_pushnumber(L, team->prevMetalExcess);
+		return 9;
 	}
 	else if (type == "energy") {
 		lua_pushnumber(L, team->energy);
@@ -1130,9 +1099,10 @@ int LuaSyncedRead::GetTeamResources(lua_State* L)
 		lua_pushnumber(L, team->prevEnergyIncome);
 		lua_pushnumber(L, team->prevEnergyExpense);
 		lua_pushnumber(L, team->energyShare);
-		lua_pushnumber(L, team->energySent);
-		lua_pushnumber(L, team->energyReceived);
-		return 8;
+		lua_pushnumber(L, team->prevEnergySent);
+		lua_pushnumber(L, team->prevEnergyReceived);
+		lua_pushnumber(L, team->prevEnergyExcess);
+		return 9;
 	}
 
 	return 0;
@@ -3366,6 +3336,19 @@ int LuaSyncedRead::GetUnitDefDimensions(lua_State* L)
 	HSTR_PUSH_NUMBER(L, "minz",   m.mins.z);
 	HSTR_PUSH_NUMBER(L, "maxz",   m.maxs.z);
 	return 1;
+}
+
+
+int LuaSyncedRead::GetUnitBlocking(lua_State *L)
+{
+	const CUnit* unit = ParseUnit(L, __FUNCTION__, 1);
+	if (unit == NULL) {
+		return 0;
+	}
+
+	lua_pushboolean(L, unit->blocking);
+	lua_pushboolean(L, unit->crushable);
+	return 2;
 }
 
 

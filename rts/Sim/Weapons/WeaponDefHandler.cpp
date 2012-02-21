@@ -287,13 +287,7 @@ void CWeaponDefHandler::ParseWeapon(const LuaTable& wdTable, WeaponDef& wd)
 	wd.trajectoryHeight = wdTable.GetFloat("trajectoryHeight", 0.0f);
 
 	wd.noAutoTarget = (wd.manualfire || wd.interceptor || wd.isShield);
-
 	wd.onlyTargetCategory = 0xffffffff;
-	if (wdTable.GetBool("toAirWeapon", false)) {
-		// fix if we sometime call aircrafts otherwise
-		wd.onlyTargetCategory = CCategoryHandler::Instance()->GetCategories("VTOL");
-		//LOG("air only weapon %s %i", weaponname.c_str(), wd.onlyTargetCategory);
-	}
 
 	wd.largeBeamLaser = wdTable.GetBool("largeBeamLaser", false);
 
@@ -399,7 +393,7 @@ void CWeaponDefHandler::ParseWeaponVisuals(const LuaTable& wdTable, WeaponDef& w
 	const std::string& colormap = wdTable.GetString("colormap", "");
 	const LuaTable& texTable = wdTable.SubTable("textures");
 
-	static const float3 defColors[4] = {
+	const float3 defColors[4] = {
 		hs2rgb(color1Hue, color1Sat), // default rgbColor1 for all weapon-types except cannons
 		float3(1.0f, 1.0f, 1.0f),     // default rgbColor2 for all weapon-types
 		float3(1.0f, 0.5f, 0.0f),     // default rgbColor1 for Cannons

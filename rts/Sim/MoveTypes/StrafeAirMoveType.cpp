@@ -18,7 +18,6 @@
 #include "System/myMath.h"
 
 CR_BIND_DERIVED(CStrafeAirMoveType, AAirMoveType, (NULL));
-CR_BIND(CStrafeAirMoveType::DrawLine, );
 CR_BIND(CStrafeAirMoveType::RudderInfo, );
 
 CR_REG_METADATA(CStrafeAirMoveType, (
@@ -50,8 +49,6 @@ CR_REG_METADATA(CStrafeAirMoveType, (
 	CR_MEMBER(crashElevator),
 	CR_MEMBER(crashRudder),
 
-	CR_MEMBER(lines),
-
 	CR_MEMBER(rudder),
 	CR_MEMBER(elevator),
 	CR_MEMBER(aileronRight),
@@ -68,10 +65,6 @@ CR_REG_METADATA(CStrafeAirMoveType, (
 
 	CR_RESERVED(63)
 ));
-
-CR_REG_METADATA_SUB(CStrafeAirMoveType, DrawLine, (
-		CR_MEMBER(pos1), CR_MEMBER(pos2),
-		CR_MEMBER(color)));
 
 CR_REG_METADATA_SUB(CStrafeAirMoveType, RudderInfo, (CR_MEMBER(rotation)));
 
@@ -150,10 +143,8 @@ CStrafeAirMoveType::CStrafeAirMoveType(CUnit* owner):
 	lastAileronPos = 0;
 
 	exitVector = gs->randVector();
-	if (exitVector.y < 0) {
-		exitVector.y = -exitVector.y;
-	}
-	exitVector.y += 1;
+	exitVector.y = math::fabs(exitVector.y);
+	exitVector.y += 1.0f;
 }
 
 
@@ -245,14 +236,16 @@ bool CStrafeAirMoveType::Update()
 			inefficientAttackTime = 0;
 			UpdateLanding();
 			break;
-		case AIRCRAFT_CRASHING:
+		case AIRCRAFT_CRASHING: {
 			// note: the crashing-state can only be set by scripts
 			UpdateAirPhysics(crashRudder, crashAileron, crashElevator, 0, owner->frontdir);
-			new CSmokeProjectile(owner->midPos, gs->randVector() * 0.08f, 100 + gs->randFloat() * 50, 5, 0.2f, owner, 0.4f);
 
-			if (!(gs->frameNum & 3) && (ground->GetHeightAboveWater(owner->pos.x, owner->pos.z) + 5.0f + owner->radius) > owner->pos.y)
+			if (!(gs->frameNum & 3) && (ground->GetHeightAboveWater(owner->pos.x, owner->pos.z) + 5.0f + owner->radius) > owner->pos.y) {
 				owner->crashing = false; owner->KillUnit(true, false, 0);
-			break;
+			}
+
+			new CSmokeProjectile(owner->midPos, gs->randVector() * 0.08f, 100 + gs->randFloat() * 50, 5, 0.2f, owner, 0.4f);
+		} break;
 		case AIRCRAFT_TAKEOFF:
 			UpdateTakeOff(wantedHeight);
 			break;
@@ -286,10 +279,8 @@ bool CStrafeAirMoveType::HandleCollisions() {
 	if (pos != oldPos) {
 		oldPos = pos;
 
-		const bool checkCollisions =
-			collide &&
-			(!owner->beingBuilt) &&
-			(aircraftState == AIRCRAFT_FLYING || aircraftState == AIRCRAFT_CRASHING);
+		// check for collisions if not on a pad, not being built, or not taking off
+		const bool checkCollisions = collide && !owner->beingBuilt && (padStatus == 0) && (aircraftState != AIRCRAFT_TAKEOFF);
 
 		if (checkCollisions) {
 			bool hitBuilding = false;
@@ -370,7 +361,7 @@ void CStrafeAirMoveType::SlowUpdate()
 	// try to handle aircraft getting unlimited height
 	if (owner->pos != oldSlowUpdatePos) {
 		const float posy = owner->pos.y;
-		const float gndy = ground->GetApproximateHeight(owner->pos.x, owner->pos.z);
+		const float gndy = ground->GetHeightReal(owner->pos.x, owner->pos.z);
 
 		#if 0
 		// if wantedHeight suddenly jumps (from eg. 400 to 20)
@@ -416,7 +407,7 @@ void CStrafeAirMoveType::UpdateManeuver()
 			if ((owner->updir.y < 0.0f && owner->frontdir.y < 0.0f) || speedf < 0.8f) {
 				maneuver = 0;
 			}
-			// some seem to report that the "unlimited altitude" thing is because of these maneuvers
+			// [?] some seem to report that the "unlimited altitude" thing is because of these maneuvers
 			if (owner->pos.y - ground->GetApproximateHeight(owner->pos.x, owner->pos.z) > wantedHeight * 4.0f) {
 				maneuver = 0;
 			}
@@ -594,19 +585,11 @@ void CStrafeAirMoveType::UpdateFighterAttack()
 		} else {
 			minPitch = hdif / (maxElevator * speedf * speedf * 20);
 		}
-//	} else {
-		if (lastColWarning && lastColWarningType == 2 && frontdir.dot(lastColWarning->pos + lastColWarning->speed * 20 - pos-owner->speed * 20) < 0) {
-			/*
-			float pitchMod = (updir.y > 0.0f)? 1: -1;
-			if (lastColWarning->pos.y > pos.y)
-				elevator = -pitchMod;
-			else
-				elevator = pitchMod;
-			*/
 
+		if (lastColWarning && lastColWarningType == 2 && frontdir.dot(lastColWarning->pos + lastColWarning->speed * 20 - pos-owner->speed * 20) < 0) {
 			elevator = (updir.dot(lastColWarning->midPos - owner->midPos) > 0.0f)? -1 : 1;
 		} else {
-			float hdif = goalDir.dot(updir);
+			const float hdif = goalDir.dot(updir);
 			if (hdif < -maxElevator * speedf) {
 				elevator = -1;
 			} else if (hdif > maxElevator * speedf) {
@@ -633,10 +616,8 @@ void CStrafeAirMoveType::UpdateFighterAttack()
 
 void CStrafeAirMoveType::UpdateAttack()
 {
-	UpdateFlying(wantedHeight, 1);
+	UpdateFlying(wantedHeight, 1.0f);
 }
-
-
 
 void CStrafeAirMoveType::UpdateFlying(float wantedHeight, float engine)
 {
@@ -659,8 +640,8 @@ void CStrafeAirMoveType::UpdateFlying(float wantedHeight, float engine)
 	float rudder = 0.0f;
 	float elevator = 0.0f;
 
-	// do not check if the plane can be submerged here, since it'll cause
-	// ground collisions later on
+	// do not check if the plane can be submerged here,
+	// since it'll cause ground collisions later on (?)
 	float gHeight;
 	if (UseSmoothMesh())
 		gHeight = std::max(smoothGround->GetHeight(pos.x, pos.z), ground->GetApproximateHeight(pos.x, pos.z));
@@ -747,17 +728,21 @@ void CStrafeAirMoveType::UpdateFlying(float wantedHeight, float engine)
 	// pitch
 	if (speedf > 0.8f) {
 		bool notColliding = true;
+
 		if (lastColWarningType == 2) {
 			const float3 dir = lastColWarning->midPos - owner->midPos;
 			const float3 sdir = lastColWarning->speed - owner->speed;
+
 			if (frontdir.dot(dir + sdir * 20) < 0) {
 				elevator = updir.dot(dir) > 0 ? -1 : 1;
 				notColliding = false;
 			}
 		}
+
 		if (notColliding) {
-			float gHeightAW = ground->GetHeightAboveWater(pos.x + speed.x * 40, pos.z + speed.z * 40);
-			float hdif = std::max(gHeight, gHeightAW) + wantedHeight - pos.y - frontdir.y * speedf * 20;
+			const float gHeightAW = ground->GetHeightAboveWater(pos.x + speed.x * 40, pos.z + speed.z * 40);
+			const float hdif = std::max(gHeight, gHeightAW) + wantedHeight - pos.y - frontdir.y * speedf * 20;
+
 			if (hdif < -(maxElevator * speedf * speedf * 20) && frontdir.y > -maxPitch) {
 				elevator = -1;
 			} else if (hdif > (maxElevator * speedf * speedf * 20) && frontdir.y < maxPitch) {
@@ -767,8 +752,7 @@ void CStrafeAirMoveType::UpdateFlying(float wantedHeight, float engine)
 					elevator = hdif / (maxElevator * speedf * speedf * 20);
 			}
 		}
-	}
-	else {
+	} else {
 		if (frontdir.y < -0.1f) {
 			elevator = 1;
 		} else if (frontdir.y > 0.15f) {
@@ -791,26 +775,34 @@ void CStrafeAirMoveType::UpdateLanded()
 
 
 
+static float GetVTOLAccelerationSign(float h, float wh, float speedy, bool ascending) {
+	const float nxtHeight = h + speedy * 20.0f;
+	const float tgtHeight = wh * 1.02f;
+
+	if (ascending) {
+		return ((nxtHeight < tgtHeight)?  1.0f: -1.0f);
+	} else {
+		return ((nxtHeight > tgtHeight)? -1.0f:  1.0f);
+	}
+}
+
 void CStrafeAirMoveType::UpdateTakeOff(float wantedHeight)
 {
 	const float3& pos = owner->pos;
 	      float3& speed = owner->speed;
 
-	const float h = pos.y - (owner->unitDef->canSubmerge?
+	const float currentHeight = pos.y - (owner->unitDef->canSubmerge?
 		ground->GetHeightReal(pos.x, pos.z):
 		ground->GetHeightAboveWater(pos.x, pos.z));
 
-	if (h > wantedHeight) {
+	if (currentHeight > wantedHeight) {
 		SetState(AIRCRAFT_FLYING);
 	}
 
-	if ((h + speed.y * 20) < (wantedHeight * 1.02f)) {
-		speed.y += maxAcc;
-	} else {
-		speed.y -= maxAcc;
-	}
+	speed.y += (maxAcc * GetVTOLAccelerationSign(currentHeight, wantedHeight, speed.y, true));
 
-	if (h > wantedHeight * 0.4f) {
+	// initiate forward motion before reaching wantedHeight
+	if (currentHeight > wantedHeight * 0.4f) {
 		speed += (owner->frontdir * maxAcc);
 	}
 
@@ -832,109 +824,85 @@ void CStrafeAirMoveType::UpdateLanding()
 
 	const float speedf = speed.Length();
 
-	// find a landing spot if we dont have one
+	// find a landing spot if we do not have one yet
 	if (reservedLandingPos.x < 0.0f) {
 		reservedLandingPos = FindLandingPos();
 
+		// if spot is valid, mark it on the blocking-map
+		// so other aircraft can not claim the same spot
 		if (reservedLandingPos.x > 0.0f) {
-			const float3 tp = pos;
-
-			reservedLandingPos.y += wantedHeight;
+			const float3 originalPos = pos;
 
 			owner->Move3D(reservedLandingPos, false);
 			owner->physicalState = CSolidObject::OnGround;
 			owner->Block();
 			owner->physicalState = CSolidObject::Flying;
 
-			owner->Move3D(tp, false);
+			owner->Move3D(originalPos, false);
 			owner->Deactivate();
 			owner->script->StopMoving();
 		} else {
-			goalPos.CheckInBounds();
+			goalPos.ClampInBounds();
 			UpdateFlying(wantedHeight, 1);
 			return;
 		}
-	} else {
-		// see if landing spot is still empty
-		/*
-		int2 mp = owner->GetMapPos(reservedLandingPos);
-
-		for (int z = mp.y; z < mp.y + owner->ysize; z++) {
-			for (int x = mp.x; x < mp.x + owner->xsize; x++) {
-				if (readmap->groundBlockingObjectMap[z * gs->mapx + x] != owner) {
-					owner->UnBlock();
-					reservedLandingPos.x = -1;
-					UpdateFlying(wantedHeight, 1);
-					return;
-				}
-			}
-		}
-		*/
 	}
 
-	// update our speed
-	float3 dif = reservedLandingPos - pos;
-	const float dist = dif.Length();
+
+	float3 reservedLandingPosDir = reservedLandingPos - pos;
+
+	const float reservedLandingPosDist = reservedLandingPosDir.Length();
 	const float landingSpeed =
 		(speedf > 0.0f && maxAcc > 0.0f)?
-		(dist / speedf * 1.8f * maxAcc):
+		(reservedLandingPosDist / speedf * 1.8f * maxAcc):
 		0.0f;
-	const float wsf = std::min(maxSpeed, landingSpeed);
 
-	if (dist > 0.0f) {
-		dif /= dist;
-	}
+	if (reservedLandingPosDist > 0.0f)
+		reservedLandingPosDir /= reservedLandingPosDist;
 
-	const float3 wantedSpeed = dif * wsf;
-	const float3 delta = wantedSpeed - speed;
-	const float dl = delta.Length();
+	const float3 wantedSpeed = reservedLandingPosDir * std::min(maxSpeedDef, landingSpeed);
+	const float3 deltaSpeed = wantedSpeed - speed;
+	const float deltaSpeedScale = deltaSpeed.Length();
 
-	if (dl < maxAcc * 3.0f) {
+	// update our speed
+	if (deltaSpeedScale < (maxAcc * 3.0f)) {
 		speed = wantedSpeed;
 	} else {
-		if (dl > 0.0f && maxAcc > 0.0f) {
-			speed += delta / dl * maxAcc * 3.0f;
+		if (deltaSpeedScale > 0.0f && maxAcc > 0.0f) {
+			speed += ((deltaSpeed / deltaSpeedScale) * (maxAcc * 3.0f));
 		}
 	}
 
 	// make the aircraft right itself up and turn toward goal
-	if (rightdir.y < -0.01f)
-		updir -= rightdir * 0.02f;
-	else if (rightdir.y > 0.01f)
-		updir += rightdir * 0.02f;
+	     if (rightdir.y < -0.01f) { updir -= (rightdir * 0.02f); }
+	else if (rightdir.y >  0.01f) { updir += (rightdir * 0.02f); }
 
-	if (frontdir.y < -0.01f)
-		frontdir += updir * 0.02f;
-	else if (frontdir.y > 0.01f)
-		frontdir -= updir * 0.02f;
+	     if (frontdir.y < -0.01f) { frontdir += (updir * 0.02f); }
+	else if (frontdir.y >  0.01f) { frontdir -= (updir * 0.02f); }
 
-	if (rightdir.dot(dif) > 0.01f)
-		frontdir += rightdir * 0.02f;
-	else if (rightdir.dot(dif) < -0.01f)
-		frontdir -= rightdir * 0.02f;
+	     if (rightdir.dot(reservedLandingPosDir) >  0.01f) { frontdir += (rightdir * 0.02f); }
+	else if (rightdir.dot(reservedLandingPosDir) < -0.01f) { frontdir -= (rightdir * 0.02f); }
 
 	owner->Move3D(speed, true);
 	owner->UpdateDirVectors(false);
 	owner->UpdateMidPos();
 
 	// see if we are at the reserved (not user-clicked) landing spot
-	if (dist < 1.0f) {
-		const float gh = ground->GetHeightAboveWater(pos.x, pos.z);
-		const float gah = ground->GetHeightReal(pos.x, pos.z);
-		float alt = 0.0f;
+	const float gh = ground->GetHeightAboveWater(pos.x, pos.z);
+	const float gah = ground->GetHeightReal(pos.x, pos.z);
+	float altitude = 0.0f;
 
-		// can we submerge and are we still above water?
-		if ((owner->unitDef->canSubmerge) && (gah < 0)) {
-			alt = pos.y - gah;
-			reservedLandingPos.y = gah;
-		} else {
-			alt = pos.y - gh;
-			reservedLandingPos.y = gh;
-		}
+	// can we submerge and are we still above water?
+	if ((owner->unitDef->canSubmerge) && (gah < 0.0f)) {
+		altitude = pos.y - gah;
+		reservedLandingPos.y = gah;
+	} else {
+		altitude = pos.y - gh;
+		reservedLandingPos.y = gh;
+	}
 
-		if (alt <= 1.0f) {
-			SetState(AIRCRAFT_LANDED);
-		}
+	if (altitude <= 1.0f) {
+		SetState(AIRCRAFT_LANDED);
 	}
 }
 
@@ -968,7 +936,7 @@ void CStrafeAirMoveType::UpdateAirPhysics(float rudder, float aileron, float ele
 			engine = std::max(0.0f, std::min(engine, 1 - (pos.y - gHeight - wantedHeight * 1.2f) / wantedHeight));
 		}
 		// check next position given current (unadjusted) pos and speed
-		nextPosInBounds = (pos + speed).CheckInBounds();
+		nextPosInBounds = (pos + speed).IsInBounds();
 	}
 
 
@@ -996,7 +964,7 @@ void CStrafeAirMoveType::UpdateAirPhysics(float rudder, float aileron, float ele
 		owner->Move3D(speed, true);
 	}
 
-	// ground collision; bounce away
+	// bounce away on ground collisions
 	if (gHeight > (owner->pos.y - owner->model->radius * 0.2f) && !owner->crashing) {
 		const float3& gNormal = ground->GetNormal(pos.x, pos.z);
 		const float impactSpeed = -speed.dot(gNormal);
@@ -1089,11 +1057,11 @@ float3 CStrafeAirMoveType::FindLandingPos() const
 	float3 tryPos = owner->pos + owner->speed * owner->speed.Length() / (maxAcc * 3);
 	tryPos.y = ground->GetHeightReal(tryPos.x, tryPos.z);
 
-	if ((tryPos.y < 0) && !(ud->floatOnWater || ud->canSubmerge)) {
+	if ((tryPos.y < 0.0f) && !(ud->floatOnWater || ud->canSubmerge)) {
 		return ret;
 	}
 
-	tryPos.CheckInBounds();
+	tryPos.ClampInBounds();
 
 	const int2 mp = owner->GetMapPos(tryPos);
 

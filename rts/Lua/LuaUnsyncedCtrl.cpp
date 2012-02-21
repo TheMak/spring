@@ -243,14 +243,6 @@ bool LuaUnsyncedCtrl::PushEntries(lua_State* L)
 //  Access helpers
 //
 
-static inline void CheckNoArgs(lua_State* L, const char* funcName)
-{
-	const int args = lua_gettop(L); // number of arguments
-	if (args != 0) {
-		luaL_error(L, "%s() takes no arguments", funcName);
-	}
-}
-
 
 static inline bool CheckModUICtrl()
 {
@@ -282,7 +274,7 @@ static inline CProjectile* ParseRawProjectile(lua_State* L, const char* caller, 
 	} else {
 		pp = ph->GetMapPairByUnsyncedID(projID);
 	}
-	
+
 	return (pp) ? pp->first : NULL;
 }
 
@@ -1941,7 +1933,7 @@ int LuaUnsyncedCtrl::SetMouseCursor(lua_State* L)
 
 	const std::string& cursorName = luaL_checkstring(L, 1);
 	const float cursorScale = luaL_optfloat(L, 2, 1.0f);
-	
+
 	mouse->ChangeCursor(cursorName, cursorScale);
 
 	return 0;
@@ -2912,15 +2904,18 @@ int LuaUnsyncedCtrl::SendSkirmishAIMessage(lua_State* L) {
 
 	std::vector<const char*> outData;
 
-	lua_checkstack(L, outData.size() + 1);
+	lua_checkstack(L, 2);
 	lua_pushboolean(L, eoh->SendLuaMessages(aiTeam, inData, outData));
+	lua_createtable(L, outData.size(), 0);
 
-	// push the response(s)
+	// push the AI response(s)
 	for (unsigned int n = 0; n < outData.size(); n++) {
+		lua_pushnumber(L, n + 1);
 		lua_pushstring(L, outData[n]);
+		lua_rawset(L, -3);
 	}
 
-	return (outData.size() + 1);
+	return 2;
 }
 
 /******************************************************************************/

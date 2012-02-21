@@ -415,11 +415,12 @@ bool CCommandAI::AllowedCommand(const Command& c, bool fromSynced)
 	const CSkirmishAIHandler::ids_t& saids = skirmishAIHandler.GetSkirmishAIsInTeam(owner->team);
 	const bool aiOrder = (!saids.empty());
 	const int& cmd_id = c.GetID();
-	
+
 	switch (cmd_id) {
 		case CMD_MANUALFIRE:
 			if (!ud->canManualFire)
 				return false;
+			// fall through
 
 		case CMD_ATTACK: {
 			if (!IsAttackCapable())
@@ -451,7 +452,7 @@ bool CCommandAI::AllowedCommand(const Command& c, bool fromSynced)
 					//     at positions outside LOS where UHM and SHM do not
 					//     match will not be broken)
 					//
-					
+
 					if (!aiOrder && math::fabs(cPos.y - gHeight) > SQUARE_SIZE) {
 						return false;
 					}
@@ -1634,7 +1635,7 @@ void CCommandAI::SlowUpdateMaxSpeed() {
 		return;
 
 	// grab the second command
-	CCommandQueue::const_iterator it = commandQue.begin(); ++it;
+	const CCommandQueue::const_iterator it = ++(commandQue.begin());
 	const Command& c = *it;
 
 	// treat any following CMD_SET_WANTED_MAX_SPEED commands as options
@@ -1644,7 +1645,8 @@ void CCommandAI::SlowUpdateMaxSpeed() {
 	if (c.params.empty())
 		return;
 
-	const float defMaxSpeed = owner->moveType->GetMaxSpeed();
+	// always clamp the command parameter
+	const float defMaxSpeed = owner->moveType->GetMaxSpeedDef();
 	const float newMaxSpeed = std::min(c.params[0], defMaxSpeed);
 
 	if (newMaxSpeed > 0.0f) {

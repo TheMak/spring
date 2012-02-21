@@ -465,9 +465,9 @@ void UDPConnection::Flush(const bool forced)
 	const spring_time curTime = spring_gettime();
 
 	// do not create chunks more than chunksPerSec times per second
-	const bool waitMore = lastChunkCreated >= (curTime - spring_msecs(1000 / chunksPerSec));
+	const bool waitMore = (lastChunkCreated >= (curTime - spring_msecs(1000 / chunksPerSec)));
 	// if the packet is tiny, reduce the send frequency further
-	const int requiredLength = spring_tomsecs(spring_msecs(200 >> netLossFactor) - (curTime - lastChunkCreated)) / 10;
+	const int requiredLength = ((200 >> netLossFactor) - spring_tomsecs(curTime - lastChunkCreated)) / 10;
 
 	int outgoingLength = 0;
 	if (!waitMore) {
@@ -735,8 +735,10 @@ void UDPConnection::SendIfNecessary(bool flushed)
 			while (true) {
 				bool canResend = maxResend > 0 && ((buf.GetSize() + resIter->second->GetSize()) <= mtu);
 				bool canSendNew = !newChunks.empty() && ((buf.GetSize() + newChunks[0]->GetSize()) <= mtu);
-				if (!canResend && !canSendNew)
+				if (!canResend && !canSendNew) {
+					todo = false;
 					break;
+				}
 				resend = !resend; // alternate between send and resend to make sure none is starved
 				if (resend && canResend) {
 					if (netLossFactor == MIN_LOSS_FACTOR) {

@@ -315,8 +315,10 @@ void CGroundMoveType::SlowUpdate()
 	if (!flying) {
 		// move us into the map, and update <oldPos>
 		// to prevent any extreme changes in <speed>
-		if (!owner->pos.CheckInBounds())
+		if (!owner->pos.IsInBounds()) {
+			owner->pos.ClampInBounds();
 			oldPos = owner->pos;
+		}
 	}
 
 	AMoveType::SlowUpdate();
@@ -651,6 +653,7 @@ void CGroundMoveType::UpdateSkid()
 			-speed.dot(ground->GetNormal(pos.x, pos.z)):
 			-speed.dot(UpVector);
 		const float impactDamageMult = impactSpeed * owner->mass * 0.02f;
+		const bool doColliderDamage = (modInfo.allowUnitCollisionDamage && impactSpeed > ud->minCollisionSpeed && ud->minCollisionSpeed >= 0.0f);
 
 		if (groundHeight > pos.y) {
 			// ground impact, stop flying
@@ -662,7 +665,7 @@ void CGroundMoveType::UpdateSkid()
 			// TODO:
 			//     bouncing behaves too much like a rubber-ball,
 			//     most impact energy needs to go into the ground
-			if (impactSpeed > ud->minCollisionSpeed && ud->minCollisionSpeed >= 0.0f) {
+			if (doColliderDamage) {
 				owner->DoDamage(DamageArray(impactDamageMult), NULL, ZeroVector);
 			}
 
@@ -823,6 +826,9 @@ void CGroundMoveType::CheckCollisionSkid()
 			const float impactSpeed = -collider->speed.dot(dif);
 			const float impactDamageMult = std::min(impactSpeed * collider->mass * MASS_MULT, MAX_UNIT_SPEED);
 
+			const bool doColliderDamage = (modInfo.allowUnitCollisionDamage && impactSpeed > colliderUD->minCollisionSpeed && colliderUD->minCollisionSpeed >= 0.0f);
+			const bool doCollideeDamage = (modInfo.allowUnitCollisionDamage && impactSpeed > collideeUD->minCollisionSpeed && collideeUD->minCollisionSpeed >= 0.0f);
+
 			if (impactSpeed <= 0.0f)
 				continue;
 
@@ -830,11 +836,11 @@ void CGroundMoveType::CheckCollisionSkid()
 			collider->speed += ((dif * impactSpeed) * 1.8f);
 
 			// damage the collider, no added impulse
-			if (impactSpeed > colliderUD->minCollisionSpeed && colliderUD->minCollisionSpeed >= 0) {
+			if (doColliderDamage) {
 				collider->DoDamage(DamageArray(impactDamageMult), NULL, ZeroVector);
 			}
 			// damage the (static) collidee based on collider's mass, no added impulse
-			if (impactSpeed > collideeUD->minCollisionSpeed && collideeUD->minCollisionSpeed >= 0) {
+			if (doCollideeDamage) {
 				collidee->DoDamage(DamageArray(impactDamageMult), NULL, ZeroVector);
 			}
 		} else {
@@ -851,6 +857,9 @@ void CGroundMoveType::CheckCollisionSkid()
 			const float3 colliderImpactImpulse = dif * colliderRelImpactSpeed;
 			const float3 collideeImpactImpulse = dif * collideeRelImpactSpeed;
 
+			const bool doColliderDamage = (modInfo.allowUnitCollisionDamage && impactSpeed > colliderUD->minCollisionSpeed && colliderUD->minCollisionSpeed >= 0.0f);
+			const bool doCollideeDamage = (modInfo.allowUnitCollisionDamage && impactSpeed > collideeUD->minCollisionSpeed && collideeUD->minCollisionSpeed >= 0.0f);
+
 			if (impactSpeed <= 0.0f)
 				continue;
 
@@ -858,11 +867,11 @@ void CGroundMoveType::CheckCollisionSkid()
 			collidee->Move3D(-collideeImpactImpulse, true);
 
 			// damage the collider
-			if (impactSpeed > colliderUD->minCollisionSpeed && colliderUD->minCollisionSpeed >= 0.0f) {
+			if (doColliderDamage) {
 				collider->DoDamage(DamageArray(colliderImpactDmgMult), NULL, dif * colliderImpactDmgMult);
 			}
 			// damage the collidee
-			if (impactSpeed > collideeUD->minCollisionSpeed && collideeUD->minCollisionSpeed >= 0.0f) {
+			if (doCollideeDamage) {
 				collidee->DoDamage(DamageArray(collideeImpactDmgMult), NULL, dif * -collideeImpactDmgMult);
 			}
 
@@ -889,6 +898,7 @@ void CGroundMoveType::CheckCollisionSkid()
 		const float impactSpeed = -collider->speed.dot(dif);
 		const float impactDamageMult = std::min(impactSpeed * collider->mass * MASS_MULT, MAX_UNIT_SPEED);
 		const float3 impactImpulse = dif * impactSpeed;
+		const bool doColliderDamage = (modInfo.allowUnitCollisionDamage && impactSpeed > colliderUD->minCollisionSpeed && colliderUD->minCollisionSpeed >= 0.0f);
 
 		if (impactSpeed <= 0.0f)
 			continue;
@@ -897,7 +907,7 @@ void CGroundMoveType::CheckCollisionSkid()
 		collider->speed += (impactImpulse * 1.8f);
 
 		// damage the collider, no added impulse (!) 
-		if (impactSpeed > colliderUD->minCollisionSpeed && colliderUD->minCollisionSpeed >= 0) {
+		if (doColliderDamage) {
 			collider->DoDamage(DamageArray(impactDamageMult), NULL, ZeroVector);
 		}
 
@@ -1215,7 +1225,7 @@ starting from given speed.
 float CGroundMoveType::BreakingDistance(float speed) const
 {
 	const float rate = reversing? accRate: decRate;
-	const float time = speed / rate;
+	const float time = speed / std::max(rate, 0.001f);
 	const float dist = 0.5f * rate * time * time;
 	return dist;
 }
@@ -1402,7 +1412,7 @@ void CGroundMoveType::HandleUnitCollisions(
 		const float separationMinDist = (colliderRadius + collideeRadius) * (colliderRadius + collideeRadius);
 
 		if ((separationVector.SqLength() - separationMinDist) > 0.01f) { continue; }
-		if (collidee->usingScriptMoveType) { pushCollidee = false; }
+		if (collidee->usingScriptMoveType && !collidee->inAir) { pushCollidee = false; }
 		if (collideeUD->pushResistant) { pushCollidee = false; }
 
 		// if not an allied collision, neither party is allowed to be pushed (bi-directional)
@@ -1411,9 +1421,10 @@ void CGroundMoveType::HandleUnitCollisions(
 			teamHandler->Ally(collider->allyteam, collidee->allyteam) &&
 			teamHandler->Ally(collidee->allyteam, collider->allyteam);
 
-		pushCollider &= (alliedCollision || modInfo.allowPushingEnemyUnits);
-		pushCollidee &= (alliedCollision || modInfo.allowPushingEnemyUnits);
+		pushCollider &= (alliedCollision || modInfo.allowPushingEnemyUnits || (collider->inAir && !colliderUD->IsAirUnit()));
+		pushCollidee &= (alliedCollision || modInfo.allowPushingEnemyUnits || (collidee->inAir && !collideeUD->IsAirUnit()));
 		crushCollidee |= (!alliedCollision || modInfo.allowCrushingAlliedUnits);
+		crushCollidee &= (collider->speed != ZeroVector);
 
 		// don't push/crush either party if the collidee does not block the collider
 		if (colliderMM->IsNonBlocking(*colliderMD, collidee)) { continue; }
@@ -1450,11 +1461,22 @@ void CGroundMoveType::HandleUnitCollisions(
 
 			if ((colliderCurPosBits & CMoveMath::BLOCK_STRUCTURE) == 0)
 				continue;
+			if (colliderNxtPos == colliderCurPos)
+				continue;
 
 			if ((colliderNxtPosBits & CMoveMath::BLOCK_STRUCTURE) != 0) {
 				// applied every frame objects are colliding, so be careful
-				collider->AddImpulse(sepDirection * std::max(currentSpeed, accRate));
-				collider->Move3D(collider->speed, true);
+				collider->AddImpulse(sepDirection * sepDirMask);
+
+				currentSpeed = 0.0f;
+				deltaSpeed = 0.0f;
+
+				if ((gs->frameNum > pathRequestDelay) && ((-sepDirection).dot(owner->frontdir) >= 0.5f)) {
+					// repath iff obstacle is within 60-degree cone; we do this
+					// because the GNWP lookahead (for non-TIP units) can cause
+					// corners to be cut across statically blocked squares
+					StartMoving(goalPos, goalRadius, 0.0f);
+				}
 			}
 		}
 
@@ -1472,8 +1494,10 @@ void CGroundMoveType::HandleUnitCollisions(
 			colliderMassScale *= ((collideeMobile)? 0.0f: 1.0f);
 		}
 
-		if (pushCollider) { collider->Move3D( colResponseVec * colliderMassScale, true); } else if (colliderMobile) { collider->Move3D(colliderOldPos, false); }
-		if (pushCollidee) { collidee->Move3D(-colResponseVec * collideeMassScale, true); } else if (collideeMobile) { collidee->Move3D(collideeOldPos, false); }
+		     if (  pushCollider) { collider->Move3D( colResponseVec * colliderMassScale, true); }
+		else if (colliderMobile) { collider->Move3D(colliderOldPos, false); }
+		     if (  pushCollidee) { collidee->Move3D(-colResponseVec * collideeMassScale, true); }
+		else if (collideeMobile) { collidee->Move3D(collideeOldPos, false); }
 
 		#if 0
 		if (!((gs->frameNum + collider->id) & 31) && !colliderCAI->unimportantMove) {
@@ -1553,11 +1577,19 @@ void CGroundMoveType::HandleFeatureCollisions(
 
 			if ((colliderCurPosBits & CMoveMath::BLOCK_STRUCTURE) == 0)
 				continue;
+			if (colliderNxtPos == colliderCurPos)
+				continue;
 
 			if ((colliderNxtPosBits & CMoveMath::BLOCK_STRUCTURE) != 0) {
 				// applied every frame objects are colliding, so be careful
-				collider->AddImpulse(sepDirection * std::max(currentSpeed, accRate));
-				collider->Move3D(collider->speed, true);
+				collider->AddImpulse(sepDirection * sepDirMask);
+
+				currentSpeed = 0.0f;
+				deltaSpeed = 0.0f;
+
+				if ((gs->frameNum > pathRequestDelay) && ((-sepDirection).dot(owner->frontdir) >= 0.5f)) {
+					StartMoving(goalPos, goalRadius, 0.0f);
+				}
 			}
 		}
 
@@ -1958,7 +1990,7 @@ bool CGroundMoveType::UpdateDirectControl()
 
 	currWayPoint = owner->pos;
 	currWayPoint += wantReverse ? -owner->frontdir * 100 : owner->frontdir * 100;
-	currWayPoint.CheckInBounds();
+	currWayPoint.ClampInBounds();
 
 	if (unitCon.forward) {
 		SetDeltaSpeed(maxSpeed, wantReverse, true);
@@ -2034,15 +2066,17 @@ void CGroundMoveType::UpdateOwnerPos(bool wantReverse)
 
 bool CGroundMoveType::WantReverse(const float3& waypointDir2D) const
 {
-	if (!canReverse) {
+	if (!canReverse)
 		return false;
-	}
 
-	assert(math::fabs(decRate) > 0.0f);
-	assert(math::fabs(accRate) > 0.0f);
-	assert(math::fabs(maxSpeed) > 0.0f);
-	assert(math::fabs(turnRate) > 0.0f);
-	assert(math::fabs(maxReverseSpeed) > 0.0f);
+	// these values are normally non-0, but LuaMoveCtrl
+	// can override them and we do not want any div0's
+	if (maxReverseSpeed <= 0.0f) return false;
+	if (maxSpeed <= 0.0f) return true;
+
+	if (accRate <= 0.0f) return false;
+	if (decRate <= 0.0f) return false;
+	if (turnRate <= 0.0f) return false;
 
 	const float3 waypointDif  = goalPos - owner->pos;                                           // use final WP for ETA
 	const float waypointDist  = waypointDif.Length();                                           // in elmos
