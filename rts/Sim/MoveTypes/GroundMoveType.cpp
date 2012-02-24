@@ -51,6 +51,7 @@ LOG_REGISTER_SECTION_GLOBAL(LOG_SECTION_GMT)
 
 #define RAD2DEG (180.0f / PI)
 #define MIN_WAYPOINT_DISTANCE (SQUARE_SIZE)
+#define WAYPOINT_SKIP_TEST_GODDE 1
 #define MAX_IDLING_SLOWUPDATES 16
 #define DEBUG_OUTPUT 0
 #define WAIT_FOR_PATH 1
@@ -1208,12 +1209,18 @@ void CGroundMoveType::GetNextWayPoint()
 		const float turnFrames = SPRING_CIRCLE_DIVS / turnRate;
 		const float turnRadius = (owner->speed.Length() * turnFrames) / (PI + PI);
 
+		#if (WAYPOINT_SKIP_TEST_GODDE == 1)
+		if (waypointDir.dot(flatFrontDir * ((reversing)? -1.0f: 1.0f)) >= 0.0f) {
+			return;
+		}
+		#else
 		if (currWayPointDist > (turnRadius * 2.0f)) {
 			return;
 		}
-		if (currWayPointDist > MIN_WAYPOINT_DISTANCE && waypointDir.dot(flatFrontDir) >= 0.995f) {
+		if (currWayPointDist > MIN_WAYPOINT_DISTANCE && waypointDir.dot(flatFrontDir * ((reversing)? -1.0f: 1.0f)) >= 0.995f) {
 			return;
 		}
+		#endif
 
 		if (currWayPoint.SqDistance2D(goalPos) < Square(MIN_WAYPOINT_DISTANCE)) {
 			// trigger Arrived on the next Update (but
